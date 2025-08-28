@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Workshop Builder</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { text-align: center; }
+    form { margin-bottom: 20px; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input, textarea { width: 100%; padding: 5px; margin-top: 3px; }
+    button { margin-top: 10px; padding: 8px 12px; cursor: pointer; }
+    .agenda { border: 1px solid #ccc; padding: 10px; min-height: 50px; }
+    .activity { border: 1px solid #666; padding: 10px; margin-bottom: 10px; background: #f9f9f9; cursor: grab; }
+    .total-time { font-weight: bold; margin-top: 15px; }
+    .time { color: #0077aa; font-weight: bold; }
+    .controls { margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+  <h1>Workshop Builder</h1>
+
+  <!-- Workshop Start Time -->
+  <label>Workshop Start Time <input type="time" id="workshopStart" value="09:00"></label>
+
+  <form id="activityForm">
+    <label>Activity Title <input type="text" id="title" required></label>
+    <label>Activity Details <textarea id="details"></textarea></label>
+    <label>Facilitator Notes <textarea id="notes"></textarea></label>
+    <label>Duration (minutes) <input type="number" id="duration" required></label>
+    <label>Intended Outcome <textarea id="outcome"></textarea></label>
+    <label>Resources / Equipment <textarea id="resources"></textarea></label>
+    <button type="submit">Add Activity</button>
+  </form>
+
+  <h2>Agenda</h2>
+  <div id="agenda" class="agenda"></div>
+  <div class="total-time">Total Time: <span id="totalTime">0</span> minutes</div>
+
+  <div class="controls">
+    <button onclick="exportAgenda()">📥 Export (Markdown)</button>
+    <button onclick="exportPDF()">📄 Export (PDF)</button>
+    <button onclick="saveWorkshop()">💾 Save Workshop</button>
+    <button onclick="loadWorkshop()">📂 Load Workshop</button>
+  </div>
+
+  <!-- SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <!-- jsPDF + autoTable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <script>
+    const form = document.getElementById("activityForm");
+    const agenda = document.getElementById("agenda");
+    const totalTimeEl = document.getElementById("totalTime");
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      addActivity(
+        document.getElementById("title").value,
+        document.getElementById("details").value,
+        document.getElementById("notes").value,
+        parseInt(document.getElementById("duration").value),
+        document.getElementById("outcome").value,
+        document.getElementById("resources").value
+      );
+      form.reset();
+    });
+
+    function addActivity(title, details, notes, duration, outcome, resources) {
+      const activity = document.createElement("div");
+      activity.className = "activity";
+      activity.dataset.duration = duration;
+      activity.dataset.title = title;
+      activity.dataset.details = details;
+      activity.dataset.notes = notes;
+      activity.dataset.outcome = outcome;
+      activity.dataset.resources = resources;
+
+      activity.innerHTML = `
+        <strong>${title}</strong> (${duration} mins)<br>
+        <em>Details:</em> ${details}<br>
+        <em>Facilitator Notes:</em> ${notes}<br>
+        <em>Outcome:</em> ${outcome}<br>
+        <em>Resources:</em> ${resources}<br>
+        <span class="time"></span>
+      `;
+
+      agenda.appendChild(activity);
+      updateAgenda();
+    }
+
+    function updateAgenda() {
+      let total = 0;
+      let currentTime = document.getElementById("workshopStart").value || "09:00";
+      let [hours, minutes] = currentTime.split(":").map(Number);
+      let start = new Date();
+      start.setHours(hours, minutes, 0, 0);
+
+      document.querySelectorAll(".activity").forEach(a => {
+        const duration = parseInt(a.dataset.duration);
+        const startTime = new Date(start);
+        const endTime = new Date(startTime.getTime() + duration * 60000);
+        const formatTime = (t) => t.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        a.querySelector(".time").textContent = `🕒 ${formatTime(startTime)} – ${formatTime(endTime)}`;
+        a.dataset.start = formatTime(startTime);
+        a.dataset.end = formatTime(endTime);
+        start = new Date(endTime);
+        total += duration;
+      });
+
+      totalTimeEl.textContent = total;
+    }
+
+    new Sortable(agenda, { animation: 150, onEnd: updateAgenda });
+    document.getElementById("workshopStart").addEventListener("change", updateAgenda);
+
+    // Save to localStorage
+    function saveWorkshop() {
+      const data = {
+        startTime: document.getElementById("workshopStart").value,
+        activities: []
+      };
+      document.querySelectorAll(".activity").forEach(a => {
+        data.activities.push({
+          title: a.dataset.title,
+          details: a.dataset.details,
+          notes: a.dataset.notes,
+          duration: a.dataset.duration,
+          outcome: a.dataset.outcome,
+          resources: a.dataset.resources
+        });
+      });
+      localStorage.setItem("workshopPlan", JSON.stringify(data));
+      alert("Workshop saved!");
+    }
+
+    // Load from localStorage
+    function loadWorkshop() {
+      const saved = localStorage.getItem("workshopPlan");
+      if (!saved) { alert("No saved workshop found."); return; }
+      const data = JSON.parse(saved);
+      agenda.innerHTML = "";
+      document.getElementById("workshopStart").value = data.startTime;
+      data.activities.forEach(act => {
+        addActivity(act.title, act.details, act.notes, act.duration, act.outcome, act.resources);
+      });
+      updateAgenda();
+      alert("Workshop loaded!");
+    }
+
+    // Export (Markdown)
+    function exportAgenda() {
+      let output = `# Workshop Plan\n\nStart Time: ${document.getElementById("workshopStart").value}\n\n`;
+      document.querySelectorAll(".activity").forEach((a, i) => {
+        output += `## Activity ${i+1}: ${a.dataset.title}\n`;
+        output += `- Time: ${a.dataset.start} – ${a.dataset.end} (${a.dataset.duration} mins)\n`;
+        output += `- Details: ${a.dataset.details}\n`;
+        output += `- Facilitator Notes: ${a.dataset.notes}\n`;
+        output += `- Outcome: ${a.dataset.outcome}\n`;
+        output += `- Resources: ${a.dataset.resources}\n\n`;
+      });
+      output += `**Total Time:** ${totalTimeEl.textContent} minutes\n`;
+      const blob = new Blob([output], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "workshop-plan.md";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Export (PDF)
+    async function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: "landscape" });
+      const data = [];
+      document.querySelectorAll(".activity").forEach((a, i) => {
+        data.push([
+          i+1,
+          `${a.dataset.start} – ${a.dataset.end}`,
+          a.dataset.title,
+          a.dataset.details,
+          a.dataset.notes,
+          a.dataset.outcome,
+          a.dataset.resources,
+          `${a.dataset.duration} mins`
+        ]);
+      });
+      doc.text("Workshop Plan", 14, 15);
+      doc.autoTable({
+        head: [["#", "Time", "Title", "Details", "Facilitator Notes", "Outcome", "Resources", "Duration"]],
+        body: data,
+        startY: 20,
+        styles: { fontSize: 8, cellWidth: 'wrap' }
+      });
+      doc.text(`Total Time: ${totalTimeEl.textContent} minutes`, 14, doc.lastAutoTable.finalY + 10);
+      doc.save("workshop-plan.pdf");
+    }
+  </script>
+
+</body>
+</html>
